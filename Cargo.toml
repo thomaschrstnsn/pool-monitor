@@ -1,0 +1,36 @@
+[package]
+name = "pool-monitor"
+version = "0.1.0"
+authors = ["Thomas Christensen <thomas@chrstnsn.dk>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+esp-backtrace = { version = "0.12.0", features = [
+    "esp32",
+    "exception-handler",
+    "panic-handler",
+    "println",
+] }
+embedded-hal = {version = "1.0.0"}
+esp-hal = { version = "0.18.0", features = [ "esp32", "embedded-hal" ] }
+esp-println = { version = "0.9.1", features = ["esp32", "log"] }
+log = { version = "0.4.21" }
+
+# see https://github.com/sjm42/esp32temp for a very similar project
+ds18b20 = { git = "https://github.com/sjm42/ds18b20" }
+one-wire-bus = { git = "https://github.com/sjm42/one-wire-bus" }
+
+[profile.dev]
+# Rust debug is too slow.
+# For debug builds always builds with some optimization
+opt-level = "s"
+
+[profile.release]
+codegen-units = 1 # LLVM can perform better optimizations using a single thread
+debug = 2
+debug-assertions = false
+incremental = false
+lto = 'fat'
+opt-level = 's'
+overflow-checks = false
