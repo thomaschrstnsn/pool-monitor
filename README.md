@@ -15,6 +15,13 @@ cargo install espup
 espup install
 ```
 
+### espflash
+
+```shell
+cargo install espflash
+```
+
+
 ### environment (constants for the build)
 
 Set these environments, or put them in a `.env` file,
