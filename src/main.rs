@@ -12,8 +12,8 @@ use esp_hal::rng::Rng;
 use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{
     clock::ClockControl, delay::Delay, peripherals::Peripherals, prelude::*, system::SystemControl,
-    timer::PeriodicTimer,
 };
+use heapless::Vec;
 use one_wire_bus::{OneWire, OneWireResult};
 
 use esp_wifi::{
@@ -25,35 +25,56 @@ use esp_wifi::{
     wifi_interface::WifiStack,
     EspWifiInitFor,
 };
-use smoltcp::{
-    iface::SocketStorage,
-    wire::{IpAddress, Ipv4Address},
-};
+use smoltcp::iface::SocketStorage;
 
-fn find_devices<P, E>(delay: &mut impl DelayNs, one_wire_pin: P)
+fn find_devices<P, E>(
+    delay: &mut impl DelayNs,
+    one_wire_bus: &mut OneWire<P>,
+    family_code: u8,
+) -> Vec<Ds18b20, 2>
 where
     P: OutputPin<Error = E> + InputPin<Error = E>,
     E: Debug,
 {
-    let mut one_wire_bus = OneWire::new(one_wire_pin).unwrap();
+    let mut devices = Vec::new();
     for device_address in one_wire_bus.devices(false, delay) {
         // The search could fail at any time, so check each result. The iterator automatically
         // ends after an error.
         let device_address = device_address.unwrap();
 
-        // The family code can be used to identify the type of device
-        // If supported, another crate can be used to interact with that device at the given address
-        log::info!(
-            "Found device at address {:?} with family code: {:#x?}",
-            device_address,
-            device_address.family_code()
-        )
+        if device_address.family_code() == family_code {
+            // The family code can be used to identify the type of device
+            // If supported, another crate can be used to interact with that device at the given address
+            log::info!(
+                "Found device at address {:?} with family code: {:#x?}",
+                device_address,
+                device_address.family_code()
+            );
+
+            let sensor = match Ds18b20::new::<E>(device_address) {
+                Ok(sensor) => sensor,
+                Err(e) => {
+                    log::error!("Error creating sensor: {:?}", e);
+                    panic!("oh no")
+                }
+            };
+            if let Err(x) = devices.push(sensor) {
+                log::warn!(
+                    "found more sensors than expected, discarding... {:?}",
+                    x.address()
+                );
+                break;
+            }
+        }
     }
+
+    devices
 }
 
 fn get_temperature<P, E>(
     delay: &mut impl DelayNs,
     one_wire_bus: &mut OneWire<P>,
+    sensors: &[Ds18b20],
 ) -> OneWireResult<(), E>
 where
     P: OutputPin<Error = E> + InputPin<Error = E>,
@@ -67,31 +88,16 @@ where
     // or just wait the longest time, which is the 12-bit resolution (750ms)
     Resolution::Bits12.delay_for_measurement_time(delay);
 
-    // iterate over all the devices, and report their temperature
-    let mut search_state = None;
-    loop {
-        if let Some((device_address, state)) =
-            one_wire_bus.device_search(search_state.as_ref(), false, delay)?
-        {
-            search_state = Some(state);
-            if device_address.family_code() != ds18b20::FAMILY_CODE {
-                // skip other devices
-                continue;
-            }
-            // You will generally create the sensor once, and save it for later
-            let sensor = Ds18b20::new(device_address)?;
-
-            // contains the read temperature, as well as config info such as the resolution used
-            let sensor_data = sensor.read_data(one_wire_bus, delay)?;
-            log::info!(
-                "Device at {:?} is {}°C",
-                device_address,
-                sensor_data.temperature
-            );
-        } else {
-            break;
-        }
+    // contains the read temperature, as well as config info such as the resolution used
+    for sensor in sensors {
+        let sensor_data = sensor.read_data(one_wire_bus, delay)?;
+        log::info!(
+            "Device at {:?} is {}°C",
+            sensor.address(),
+            sensor_data.temperature
+        );
     }
+
     Ok(())
 }
 
@@ -110,8 +116,8 @@ fn main() -> ! {
 
     // gpio4 is the default pin for the one wire bus
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut pin = AnyPin::new(io.pins.gpio4);
-    let mut od = OutputOpenDrain::new(pin, Level::High, Pull::None);
+    let pin = AnyPin::new(io.pins.gpio4);
+    let od = OutputOpenDrain::new(pin, Level::High, Pull::None);
 
     // wifi
     let timer = TimerGroup::new(peripherals.TIMG1, &clocks, None).timer0;
@@ -180,14 +186,18 @@ fn main() -> ! {
         }
     }
 
-    find_devices(&mut delay, &mut od);
-
     let mut one_wire_bus = OneWire::new(od).unwrap();
+    let sensors = find_devices(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE);
 
     let mut c = 0u32;
     loop {
         log::info!("lets go... pool station {c}!");
-        get_temperature(&mut delay, &mut one_wire_bus).expect("have value");
+        match get_temperature(&mut delay, &mut one_wire_bus, &sensors) {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Error: {:?}", e);
+            }
+        };
         c += 1;
         delay.delay(5000.millis());
     }
