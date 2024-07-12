@@ -3,6 +3,9 @@
 
 use core::fmt::Debug;
 use ds18b20::{Ds18b20, Resolution};
+use embassy_executor::Spawner;
+use embassy_net::{Config, Stack, StackResources};
+use embassy_time::{Duration, Timer};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin};
 use esp_backtrace as _;
@@ -17,15 +20,12 @@ use heapless::Vec;
 use one_wire_bus::{OneWire, OneWireResult};
 
 use esp_wifi::{
-    current_millis,
     wifi::{
-        utils::create_network_interface, AccessPointInfo, ClientConfiguration, Configuration,
-        WifiError, WifiStaDevice,
+        ClientConfiguration, Configuration, WifiController, WifiDevice, WifiEvent, WifiStaDevice,
+        WifiState,
     },
-    wifi_interface::WifiStack,
     EspWifiInitFor,
 };
-use smoltcp::iface::SocketStorage;
 
 fn find_devices<P, E>(
     delay: &mut impl DelayNs,
@@ -40,7 +40,7 @@ where
     for device_address in one_wire_bus.devices(false, delay) {
         // The search could fail at any time, so check each result. The iterator automatically
         // ends after an error.
-        let device_address = device_address.unwrap();
+        let device_address = device_address.expect("scanning one-wire-bus for devices");
 
         if device_address.family_code() == family_code {
             // The family code can be used to identify the type of device
@@ -103,21 +103,24 @@ where
 
 const SSID: &str = env!("ESP32_WIFI_SSID");
 const PASS: &str = env!("ESP32_WIFI_PASS");
+//
+// When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
+macro_rules! mk_static {
+    ($t:ty,$val:expr) => {{
+        static STATIC_CELL: static_cell::StaticCell<$t> = static_cell::StaticCell::new();
+        #[deny(unused_attributes)]
+        let x = STATIC_CELL.uninit().write(($val));
+        x
+    }};
+}
 
-#[entry]
-fn main() -> ! {
-    let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
-
-    let clocks = ClockControl::max(system.clock_control).freeze();
-    let mut delay = Delay::new(&clocks);
-
+#[main]
+async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
-    // gpio4 is the default pin for the one wire bus
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let pin = AnyPin::new(io.pins.gpio4);
-    let od = OutputOpenDrain::new(pin, Level::High, Pull::None);
+    let peripherals = Peripherals::take();
+    let system = SystemControl::new(peripherals.SYSTEM);
+    let clocks = ClockControl::max(system.clock_control).freeze();
 
     // wifi
     let timer = TimerGroup::new(peripherals.TIMG1, &clocks, None).timer0;
@@ -131,74 +134,105 @@ fn main() -> ! {
     .unwrap();
 
     let wifi = peripherals.WIFI;
-    let mut socket_set_entries: [SocketStorage; 3] = Default::default();
-    let (iface, device, mut controller, sockets) =
-        create_network_interface(&init, wifi, WifiStaDevice, &mut socket_set_entries).unwrap();
-    let wifi_stack = WifiStack::new(iface, device, sockets, current_millis);
+    let (wifi_interface, controller) =
+        esp_wifi::wifi::new_with_mode(&init, wifi, WifiStaDevice).unwrap();
 
-    let client_config = Configuration::Client(ClientConfiguration {
-        ssid: SSID.try_into().unwrap(),
-        password: PASS.try_into().unwrap(),
-        ..Default::default()
-    });
-    let res = controller.set_configuration(&client_config);
-    log::info!("wifi_set_configuration returned {:?}", res);
+    let timer_group0 = TimerGroup::new_async(peripherals.TIMG0, &clocks);
+    esp_hal_embassy::init(&clocks, timer_group0);
 
-    controller.start().unwrap();
-    log::info!("is wifi started: {:?}", controller.is_started());
+    let config = Config::dhcpv4(Default::default());
 
-    log::info!("Start Wifi Scan");
-    let res: Result<(heapless::Vec<AccessPointInfo, 10>, usize), WifiError> = controller.scan_n();
-    if let Ok((res, _count)) = res {
-        for ap in res {
-            log::info!("{:?}", ap);
-        }
-    }
+    let seed = 420_691_337; // very random, very secure seed
 
-    log::info!("{:?}", controller.get_capabilities());
-    log::info!("wifi_connect {:?}", controller.connect());
+    // Init network stack
+    let stack = &*mk_static!(
+        Stack<WifiDevice<'_, WifiStaDevice>>,
+        Stack::new(
+            wifi_interface,
+            config,
+            mk_static!(StackResources<3>, StackResources::<3>::new()),
+            seed
+        )
+    );
 
-    // wait to get connected
-    log::info!("Wait to get connected");
+    spawner.spawn(connection(controller)).ok();
+    spawner.spawn(net_task(&stack)).ok();
+
     loop {
-        let res = controller.is_connected();
-        match res {
-            Ok(connected) => {
-                if connected {
-                    break;
-                }
-            }
-            Err(err) => {
-                log::error!("{:?}", err);
-            }
-        }
-    }
-    log::info!("{:?}", controller.is_connected());
-
-    // wait for getting an ip address
-    log::info!("Wait to get an ip address");
-    loop {
-        wifi_stack.work();
-
-        if wifi_stack.is_iface_up() {
-            log::info!("got ip {:?}", wifi_stack.get_ip_info());
+        if stack.is_link_up() {
             break;
         }
+        Timer::after(Duration::from_millis(500)).await;
     }
 
+    log::info!("Waiting to get IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            log::info!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+    let mut delay = Delay::new(&clocks);
+
+    let pin = AnyPin::new(io.pins.gpio4); // gpio4 is the default pin for the one wire bus
+    let od = OutputOpenDrain::new(pin, Level::High, Pull::None);
     let mut one_wire_bus = OneWire::new(od).unwrap();
     let sensors = find_devices(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE);
-
     let mut c = 0u32;
     loop {
+        Timer::after(Duration::from_millis(1_000)).await;
+
         log::info!("lets go... pool station {c}!");
         match get_temperature(&mut delay, &mut one_wire_bus, &sensors) {
             Ok(_) => {}
             Err(e) => {
-                log::error!("Error: {:?}", e);
+                log::error!("Error getting sensor temperature: {:?}", e);
             }
         };
         c += 1;
-        delay.delay(5000.millis());
     }
+}
+
+#[embassy_executor::task]
+async fn connection(mut controller: WifiController<'static>) {
+    log::info!("start connection task");
+    log::info!("Device capabilities: {:?}", controller.get_capabilities());
+    loop {
+        match esp_wifi::wifi::get_wifi_state() {
+            WifiState::StaConnected => {
+                // wait until we're no longer connected
+                controller.wait_for_event(WifiEvent::StaDisconnected).await;
+                Timer::after(Duration::from_millis(5000)).await
+            }
+            _ => {}
+        }
+        if !matches!(controller.is_started(), Ok(true)) {
+            let client_config = Configuration::Client(ClientConfiguration {
+                ssid: SSID.try_into().unwrap(),
+                password: PASS.try_into().unwrap(),
+                ..Default::default()
+            });
+            controller.set_configuration(&client_config).unwrap();
+            log::info!("Starting wifi");
+            controller.start().await.unwrap();
+            log::info!("Wifi started!");
+        }
+        log::info!("About to connect...");
+
+        match controller.connect().await {
+            Ok(_) => log::info!("Wifi connected!"),
+            Err(e) => {
+                log::error!("Failed to connect to wifi: {e:?}");
+                Timer::after(Duration::from_millis(5000)).await
+            }
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn net_task(stack: &'static Stack<WifiDevice<'static, WifiStaDevice>>) {
+    stack.run().await
 }
