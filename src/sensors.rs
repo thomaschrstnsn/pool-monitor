@@ -9,13 +9,15 @@ use esp_hal::{
     gpio::{GpioPin, OutputOpenDrain},
 };
 use heapless::Vec;
-use one_wire_bus::{OneWire, OneWireResult};
+use one_wire_bus::{OneWire, OneWireError, OneWireResult};
+
+type Sensors = Vec<Ds18b20, 2>;
 
 fn find_devices<P, E>(
     delay: &mut impl DelayNs,
     one_wire_bus: &mut OneWire<P>,
     family_code: u8,
-) -> Vec<Ds18b20, 2>
+) -> Result<Sensors, OneWireError<E>>
 where
     P: OutputPin<Error = E> + InputPin<Error = E>,
     E: Debug,
@@ -24,7 +26,7 @@ where
     for device_address in one_wire_bus.devices(false, delay) {
         // The search could fail at any time, so check each result. The iterator automatically
         // ends after an error.
-        let device_address = device_address.expect("scanning one-wire-bus for devices");
+        let device_address = device_address?;
 
         if device_address.family_code() == family_code {
             // The family code can be used to identify the type of device
@@ -52,7 +54,34 @@ where
         }
     }
 
-    devices
+    Ok(devices)
+}
+
+async fn find_devices_retry<P, E>(
+    delay: &mut impl DelayNs,
+    one_wire_bus: &mut OneWire<P>,
+    family_code: u8,
+) -> Sensors
+where
+    P: OutputPin<Error = E> + InputPin<Error = E>,
+    E: Debug,
+{
+    let mut retry = 0;
+    loop {
+        match find_devices(delay, one_wire_bus, family_code) {
+            Ok(devices) => return devices,
+            Err(e) => {
+                log::warn!("Error finding devices: {:?}", e);
+                retry += 1;
+                if retry < 3 {
+                    Timer::after(Duration::from_millis(25)).await;
+                    continue;
+                }
+                log::error!("giving up finding devices");
+                panic!("oh no")
+            }
+        }
+    }
 }
 
 async fn get_temperature<P, E>(
@@ -107,7 +136,7 @@ where
 #[embassy_executor::task]
 pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: Delay) {
     let mut one_wire_bus = OneWire::new(ood).expect("creating a one-wire-bus");
-    let sensors = find_devices(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE);
+    let sensors = find_devices_retry(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE).await;
     let mut c = 0u32;
     loop {
         Timer::after(Duration::from_millis(1_000)).await;
