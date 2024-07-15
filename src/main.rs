@@ -9,12 +9,15 @@ use embassy_time::{Duration, Timer};
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::{InputPin, OutputPin};
 use esp_backtrace as _;
-use esp_hal::gpio::any_pin::AnyPin;
-use esp_hal::gpio::{Io, Level, OutputOpenDrain, Pull};
-use esp_hal::rng::Rng;
-use esp_hal::timer::timg::TimerGroup;
 use esp_hal::{
-    clock::ClockControl, delay::Delay, peripherals::Peripherals, prelude::*, system::SystemControl,
+    clock::ClockControl,
+    delay::Delay,
+    gpio::{GpioPin, Io, Level, OutputOpenDrain, Pull},
+    peripherals::Peripherals,
+    prelude::*,
+    rng::Rng,
+    system::SystemControl,
+    timer::timg::TimerGroup,
 };
 use heapless::Vec;
 use one_wire_bus::{OneWire, OneWireResult};
@@ -115,7 +118,7 @@ macro_rules! mk_static {
 }
 
 #[main]
-async fn main(spawner: Spawner) -> ! {
+async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     let peripherals = Peripherals::take();
@@ -175,11 +178,16 @@ async fn main(spawner: Spawner) -> ! {
     }
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
-    let mut delay = Delay::new(&clocks);
+    let delay = Delay::new(&clocks);
 
-    let pin = AnyPin::new(io.pins.gpio4); // gpio4 is the default pin for the one wire bus
-    let od = OutputOpenDrain::new(pin, Level::High, Pull::None);
-    let mut one_wire_bus = OneWire::new(od).unwrap();
+    let pin = io.pins.gpio4; // gpio4 is the default pin for the one wire bus
+    let ood = OutputOpenDrain::new(pin, Level::High, Pull::None);
+    spawner.spawn(read_sensors(ood, delay)).ok();
+}
+
+#[embassy_executor::task]
+async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: Delay) {
+    let mut one_wire_bus = OneWire::new(ood).expect("creating a one-wire-bus");
     let sensors = find_devices(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE);
     let mut c = 0u32;
     loop {
