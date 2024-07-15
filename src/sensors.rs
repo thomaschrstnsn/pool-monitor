@@ -55,7 +55,7 @@ where
     devices
 }
 
-fn get_temperature<P, E>(
+async fn get_temperature<P, E>(
     delay: &mut impl DelayNs,
     one_wire_bus: &mut OneWire<P>,
     sensors: &[Ds18b20],
@@ -74,12 +74,31 @@ where
 
     // contains the read temperature, as well as config info such as the resolution used
     for sensor in sensors {
-        let sensor_data = sensor.read_data(one_wire_bus, delay)?;
-        log::info!(
-            "Device at {:?} is {}°C",
-            sensor.address(),
-            sensor_data.temperature
-        );
+        let mut retry = 0;
+        loop {
+            let res = match sensor.read_data(one_wire_bus, delay) {
+                Ok(sensor_data) => {
+                    log::info!(
+                        "Device at {:?} is {}°C (retry {})",
+                        sensor.address(),
+                        sensor_data.temperature,
+                        retry
+                    );
+                    Ok(())
+                }
+                Err(e) => {
+                    log::warn!("error getting temp: {:?}", e);
+                    retry += 1;
+                    if retry < 3 {
+                        Timer::after(Duration::from_millis(25)).await;
+                        continue;
+                    }
+                    Err(e)
+                }
+            };
+            res?;
+            break;
+        }
     }
 
     Ok(())
@@ -94,7 +113,7 @@ pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: 
         Timer::after(Duration::from_millis(1_000)).await;
 
         log::info!("lets go... pool station {c}!");
-        match get_temperature(&mut delay, &mut one_wire_bus, &sensors) {
+        match get_temperature(&mut delay, &mut one_wire_bus, &sensors).await {
             Ok(_) => {}
             Err(e) => {
                 log::error!("Error getting sensor temperature: {:?}", e);
