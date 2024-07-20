@@ -67,7 +67,7 @@ async fn main(spawner: Spawner) {
 
     let config = Config::dhcpv4(Default::default());
 
-    let seed = 420_691_337; // very random, very secure seed
+    let seed = 420 ^ 69 ^ 313373 ^ 0xCAFEBABE; // very random, very secure seed
 
     // Init network stack
     let stack = &*mk_static!(
