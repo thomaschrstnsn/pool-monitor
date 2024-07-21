@@ -70,7 +70,7 @@ async fn post_data(
 
     let request = create_http_post_request(message);
 
-    if let Err(_) = request {
+    if request.is_err() {
         log::error!("Failed to create HTTP request");
         return;
     }
