@@ -30,6 +30,8 @@ which will be source directly using [`direnv`](https://direnv.net/):
 ```shell
 export ESP32_WIFI_SSID=YOURWIFI
 export ESP32_WIFI_PASS=YOURPASSWORD
+export POST_ENDPOINT_IP=IP_OF_HTTP_ENDPOINT     # IPv4 of server accepting HTTP POST with JSON payload of temperature readings
+export POST_ENDPOINT_PORT=PORT_OF_HTTP_ENDPOINT # TCP port of the server
 ```
 
 ## running

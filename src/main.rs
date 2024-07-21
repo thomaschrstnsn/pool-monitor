@@ -16,6 +16,8 @@ use esp_hal::{
     timer::timg::TimerGroup,
 };
 
+mod channel;
+mod http;
 mod sensors;
 
 use esp_wifi::{
@@ -28,7 +30,7 @@ use esp_wifi::{
 
 const SSID: &str = env!("ESP32_WIFI_SSID");
 const PASS: &str = env!("ESP32_WIFI_PASS");
-//
+
 // When you are okay with using a nightly compiler it's better to use https://docs.rs/static_cell/2.1.0/static_cell/macro.make_static.html
 macro_rules! mk_static {
     ($t:ty,$val:expr) => {{
@@ -81,7 +83,7 @@ async fn main(spawner: Spawner) {
     );
 
     spawner.spawn(connection(controller)).ok();
-    spawner.spawn(net_task(&stack)).ok();
+    spawner.spawn(net_task(stack)).ok();
 
     loop {
         if stack.is_link_up() {
@@ -105,6 +107,7 @@ async fn main(spawner: Spawner) {
     let pin = io.pins.gpio4; // gpio4 is the default pin for the one wire bus
     let ood = OutputOpenDrain::new(pin, Level::High, Pull::None);
     spawner.spawn(sensors::read_sensors(ood, delay)).ok();
+    spawner.spawn(http::post_updates(stack)).ok();
 }
 
 #[embassy_executor::task]
@@ -112,13 +115,10 @@ async fn connection(mut controller: WifiController<'static>) {
     log::info!("start connection task");
     log::info!("Device capabilities: {:?}", controller.get_capabilities());
     loop {
-        match esp_wifi::wifi::get_wifi_state() {
-            WifiState::StaConnected => {
-                // wait until we're no longer connected
-                controller.wait_for_event(WifiEvent::StaDisconnected).await;
-                Timer::after(Duration::from_millis(5000)).await
-            }
-            _ => {}
+        if let WifiState::StaConnected = esp_wifi::wifi::get_wifi_state() {
+            // wait until we're no longer connected
+            controller.wait_for_event(WifiEvent::StaDisconnected).await;
+            Timer::after(Duration::from_millis(5000)).await
         }
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = Configuration::Client(ClientConfiguration {

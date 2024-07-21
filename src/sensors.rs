@@ -11,7 +11,13 @@ use esp_hal::{
 use heapless::Vec;
 use one_wire_bus::{OneWire, OneWireError, OneWireResult};
 
-type Sensors = Vec<Ds18b20, 2>;
+use crate::channel::TEMP_CHANNEL;
+
+const NUM_SENSORS: usize = 2;
+
+type Sensors = Vec<Ds18b20, NUM_SENSORS>;
+
+pub type TempMessage = [f32; NUM_SENSORS];
 
 fn find_devices<P, E>(
     delay: &mut impl DelayNs,
@@ -84,11 +90,11 @@ where
     }
 }
 
-async fn get_temperature<P, E>(
+async fn get_temperature<P, E, const N: usize>(
     delay: &mut impl DelayNs,
     one_wire_bus: &mut OneWire<P>,
-    sensors: &[Ds18b20],
-) -> OneWireResult<(), E>
+    sensors: &Vec<Ds18b20, N>,
+) -> OneWireResult<Vec<f32, N>, E>
 where
     P: OutputPin<Error = E> + InputPin<Error = E>,
     E: Debug,
@@ -101,7 +107,8 @@ where
     // or just wait the longest time, which is the 12-bit resolution (750ms)
     Resolution::Bits12.delay_for_measurement_time(delay);
 
-    // contains the read temperature, as well as config info such as the resolution used
+    let mut result = Vec::new();
+
     for sensor in sensors {
         let mut retry = 0;
         loop {
@@ -113,6 +120,7 @@ where
                         sensor_data.temperature,
                         retry
                     );
+                    let _ = result.push(sensor_data.temperature);
                     Ok(())
                 }
                 Err(e) => {
@@ -130,12 +138,17 @@ where
         }
     }
 
-    Ok(())
+    Ok(result)
 }
 
 #[embassy_executor::task]
 pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: Delay) {
     let mut one_wire_bus = OneWire::new(ood).expect("creating a one-wire-bus");
+
+    let publisher = TEMP_CHANNEL
+        .dyn_publisher()
+        .expect("getting publisher for channel");
+
     let sensors = find_devices_retry(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE).await;
     let mut c = 0u32;
     loop {
@@ -143,7 +156,14 @@ pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: 
 
         log::info!("lets go... pool station {c}!");
         match get_temperature(&mut delay, &mut one_wire_bus, &sensors).await {
-            Ok(_) => {}
+            Ok(readings) => match readings.into_array() {
+                Ok(readings) => {
+                    let _ = publisher.publish(readings).await;
+                }
+                _ => {
+                    log::error!("could not convert to array of readings");
+                }
+            },
             Err(e) => {
                 log::error!("Error getting sensor temperature: {:?}", e);
             }

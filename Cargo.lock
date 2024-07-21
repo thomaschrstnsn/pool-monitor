@@ -939,6 +939,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "numtoa"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6aa2c4e539b869820a2b82e1aef6ff40aa85e65decdd5185e83fb4b1249cd00f"
+
+[[package]]
 name = "one-wire-bus"
 version = "0.2.0"
 source = "git+https://github.com/sjm42/one-wire-bus#40be0a80267fed4f06a9971780ccc7bda747fab9"
@@ -972,6 +978,7 @@ dependencies = [
  "embassy-executor",
  "embassy-futures",
  "embassy-net",
+ "embassy-sync 0.6.0",
  "embassy-time",
  "embedded-hal 1.0.0",
  "esp-backtrace",
@@ -981,7 +988,9 @@ dependencies = [
  "esp-wifi",
  "heapless",
  "log",
+ "numtoa",
  "one-wire-bus",
+ "ryu",
  "smoltcp",
  "static_cell",
 ]
@@ -1131,6 +1140,12 @@ name = "rustversion"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "955d28af4278de8121b7ebeb796b6a45735dc01436d898801014aced2773a3d6"
+
+[[package]]
+name = "ryu"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f3cb5ba0dc43242ce17de99c180e96db90b235b8a9fdc9543c96d2209116bd9f"
 
 [[package]]
 name = "scopeguard"
