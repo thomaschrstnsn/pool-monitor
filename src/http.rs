@@ -137,19 +137,25 @@ fn create_http_post_request(message: &TempMessage) -> Result<String<1024>, ()> {
 
 fn create_json_payload(message: &TempMessage) -> Result<String<128>, ()> {
     let mut payload = String::new();
-    payload.push_str("{ \"temperature\": [")?;
+    payload.push_str("[")?;
 
-    let mut buffer = ryu::Buffer::new();
+    let mut ryu_buf = ryu::Buffer::new();
+    let mut numtoa_buf = [0u8; 16]; // max 16 hex chars
 
     for i in 0..message.len() {
-        let t = buffer.format(message[i]);
+        payload.push_str("{\"temp\":")?;
+        let t = ryu_buf.format(message[i].temperature_celcius);
         payload.push_str(t)?;
+        payload.push_str(",\"addr\":\"")?;
+        payload.push_str(message[i].sensor_address.0.numtoa_str(16, &mut numtoa_buf))?;
+        payload.push_str("\"}")?;
+
         if i != message.len() - 1 {
             payload.push_str(",")?;
         }
     }
 
-    payload.push_str("]}")?;
+    payload.push_str("]")?;
 
     Ok(payload)
 }

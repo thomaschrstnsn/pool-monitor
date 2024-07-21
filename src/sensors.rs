@@ -17,7 +17,13 @@ const NUM_SENSORS: usize = 2;
 
 type Sensors = Vec<Ds18b20, NUM_SENSORS>;
 
-pub type TempMessage = [f32; NUM_SENSORS];
+#[derive(Debug, Clone)]
+pub struct Reading {
+    pub temperature_celcius: f32,
+    pub sensor_address: one_wire_bus::Address,
+}
+
+pub type TempMessage = [Reading; NUM_SENSORS];
 
 fn find_devices<P, E>(
     delay: &mut impl DelayNs,
@@ -60,6 +66,8 @@ where
         }
     }
 
+    assert!(devices.len() == NUM_SENSORS);
+
     Ok(devices)
 }
 
@@ -94,7 +102,7 @@ async fn get_temperature<P, E, const N: usize>(
     delay: &mut impl DelayNs,
     one_wire_bus: &mut OneWire<P>,
     sensors: &Vec<Ds18b20, N>,
-) -> OneWireResult<Vec<f32, N>, E>
+) -> OneWireResult<Vec<Reading, N>, E>
 where
     P: OutputPin<Error = E> + InputPin<Error = E>,
     E: Debug,
@@ -120,7 +128,10 @@ where
                         sensor_data.temperature,
                         retry
                     );
-                    let _ = result.push(sensor_data.temperature);
+                    let _ = result.push(Reading {
+                        sensor_address: *sensor.address(),
+                        temperature_celcius: sensor_data.temperature,
+                    });
                     Ok(())
                 }
                 Err(e) => {
@@ -150,6 +161,7 @@ pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: 
         .expect("getting publisher for channel");
 
     let sensors = find_devices_retry(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE).await;
+
     let mut c = 0u32;
     loop {
         Timer::after(Duration::from_millis(1_000)).await;
