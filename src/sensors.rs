@@ -87,8 +87,8 @@ where
             Err(e) => {
                 log::warn!("Error finding devices: {:?}", e);
                 retry += 1;
-                if retry < 3 {
-                    Timer::after(Duration::from_millis(25)).await;
+                if retry < 20_000 {
+                    Timer::after(Duration::from_millis(250)).await;
                     continue;
                 }
                 log::error!("giving up finding devices");
@@ -162,20 +162,28 @@ pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: 
 
     let sensors = find_devices_retry(&mut delay, &mut one_wire_bus, ds18b20::FAMILY_CODE).await;
 
+    log::info!("found {} devices", sensors.len());
+
     let mut c = 0u32;
     loop {
         Timer::after(Duration::from_millis(1_000)).await;
 
         log::info!("lets go... pool station {c}!");
         match get_temperature(&mut delay, &mut one_wire_bus, &sensors).await {
-            Ok(readings) => match readings.into_array() {
-                Ok(readings) => {
-                    let _ = publisher.publish(readings).await;
+            Ok(readings) => {
+                if readings.is_empty() {
+                    log::info!("no readings...");
+                } else {
+                    match readings.into_array() {
+                        Ok(readings) => {
+                            let _ = publisher.publish(readings).await;
+                        }
+                        Err(_err) => {
+                            log::error!("could not convert to array of readings...");
+                        }
+                    }
                 }
-                _ => {
-                    log::error!("could not convert to array of readings");
-                }
-            },
+            }
             Err(e) => {
                 log::error!("Error getting sensor temperature: {:?}", e);
             }
