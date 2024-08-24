@@ -13,7 +13,8 @@ use one_wire_bus::{OneWire, OneWireError, OneWireResult};
 
 use crate::channel::TEMP_CHANNEL;
 
-const NUM_SENSORS: usize = 2;
+const NUM_SENSORS: usize = 4;
+const GPIO_PIN: u8 = 5;
 
 type Sensors = Vec<Ds18b20, NUM_SENSORS>;
 
@@ -153,7 +154,7 @@ where
 }
 
 #[embassy_executor::task]
-pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: Delay) {
+pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<GPIO_PIN>>, mut delay: Delay) {
     let mut one_wire_bus = OneWire::new(ood).expect("creating a one-wire-bus");
 
     let publisher = TEMP_CHANNEL

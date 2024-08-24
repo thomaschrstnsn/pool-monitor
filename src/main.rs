@@ -150,7 +150,8 @@ async fn main(spawner: Spawner) {
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let delay = Delay::new(&clocks);
 
-    let pin = io.pins.gpio4; // gpio4 is the default pin for the one wire bus
+    let pin = io.pins.gpio5; // gpio4 is the default pin for the one wire bus
+                             // let all_pins = [io.pins.gpio0, io.pins.gpio1];
     let ood = OutputOpenDrain::new(pin, Level::High, Pull::None);
     spawner.spawn(sensors::read_sensors(ood, delay)).ok();
     spawner.spawn(http::post_updates(stack)).ok();

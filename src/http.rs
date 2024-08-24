@@ -117,7 +117,7 @@ async fn write_all(socket: &mut TcpSocket<'_>, buf: &[u8]) -> Result<(), embassy
     Ok(())
 }
 
-fn create_http_post_request(message: &TempMessage) -> Result<String<1024>, ()> {
+fn create_http_post_request(message: &TempMessage) -> Result<String<8098>, ()> {
     let mut request = String::new();
 
     let payload = create_json_payload(message)?;
@@ -135,7 +135,7 @@ fn create_http_post_request(message: &TempMessage) -> Result<String<1024>, ()> {
     Ok(request)
 }
 
-fn create_json_payload(message: &TempMessage) -> Result<String<128>, ()> {
+fn create_json_payload(message: &TempMessage) -> Result<String<4096>, ()> {
     let mut payload = String::new();
     payload.push_str("[")?;
 
@@ -154,7 +154,6 @@ fn create_json_payload(message: &TempMessage) -> Result<String<128>, ()> {
             payload.push_str(",")?;
         }
     }
-
     payload.push_str("]")?;
 
     Ok(payload)
