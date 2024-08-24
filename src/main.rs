@@ -28,28 +28,26 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 
-// struct InitParams
-// {
-//     // nullptr to use default configuration of pins,
-//     // otherwise pointer to pin numbers for
-//     // R1_PIN
-//     // G1_PIN
-//     // B1_PIN
-//     // R2_PIN
-//     // G2_PIN
-//     // B2_PIN
-//     // A_PIN
-//     // B_PIN
-//     // C_PIN
-//     // D_PIN
-//     // E_PIN
-//     // LAT_PIN
-//     // OE_PIN
-//     // CLK_PIN
-// 
-//     int8_t* Pins;
-// };
-// 
+#[repr(C)]
+struct InitParams {
+    // nullptr to use default configuration of pins,
+    // otherwise pointer to pin numbers for
+    // R1_PIN
+    // G1_PIN
+    // B1_PIN
+    // R2_PIN
+    // G2_PIN
+    // B2_PIN
+    // A_PIN
+    // B_PIN
+    // C_PIN
+    // D_PIN
+    // E_PIN
+    // LAT_PIN
+    // OE_PIN
+    // CLK_PIN
+    pins: *mut i8,
+}
 // struct DrawParams
 // {
 //     double PoolIn;
@@ -61,14 +59,15 @@ use esp_wifi::{
 
 #[link(name = "poolstationscreen")]
 extern "C" {
-// void poolScreenInit(const InitParams* params);
-// 
-// void poolScreenDraw(const DrawParams* params);
-// 
-// void poolScreenClear();
-// void poolScreenLog(const char* text);
+    // void poolScreenInit(const InitParams* params);
+    //
+    // void poolScreenDraw(const DrawParams* params);
+    //
+    // void poolScreenClear();
+    // void poolScreenLog(const char* text);
 
     fn poolScreenClear();
+    fn poolScreenInit(init: *const InitParams);
 }
 
 const SSID: &str = env!("ESP32_WIFI_SSID");
@@ -88,7 +87,10 @@ macro_rules! mk_static {
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
     unsafe {
-        poolScreenClear();
+        let i: InitParams = InitParams {
+            pins: core::ptr::null_mut(),
+        };
+        poolScreenInit(&i);
     }
 
     let peripherals = Peripherals::take();
