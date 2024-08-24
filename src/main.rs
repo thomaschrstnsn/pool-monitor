@@ -28,6 +28,49 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 
+// struct InitParams
+// {
+//     // nullptr to use default configuration of pins,
+//     // otherwise pointer to pin numbers for
+//     // R1_PIN
+//     // G1_PIN
+//     // B1_PIN
+//     // R2_PIN
+//     // G2_PIN
+//     // B2_PIN
+//     // A_PIN
+//     // B_PIN
+//     // C_PIN
+//     // D_PIN
+//     // E_PIN
+//     // LAT_PIN
+//     // OE_PIN
+//     // CLK_PIN
+// 
+//     int8_t* Pins;
+// };
+// 
+// struct DrawParams
+// {
+//     double PoolIn;
+//     double PoolInDeltaT;
+//     double Boiler;
+//     double HeatExchangerIn;
+//     double HeatExchangerOut;
+// };
+
+#[link(name = "poolstationscreen")]
+extern "C" {
+// void poolScreenInit(const InitParams* params);
+// 
+// void poolScreenDraw(const DrawParams* params);
+// 
+// void poolScreenClear();
+// void poolScreenLog(const char* text);
+
+    fn poolScreenClear();
+}
+
 const SSID: &str = env!("ESP32_WIFI_SSID");
 const PASS: &str = env!("ESP32_WIFI_PASS");
 
@@ -44,6 +87,9 @@ macro_rules! mk_static {
 #[main]
 async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
+    unsafe {
+        poolScreenClear();
+    }
 
     let peripherals = Peripherals::take();
     let system = SystemControl::new(peripherals.SYSTEM);
