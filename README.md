@@ -1,6 +1,6 @@
 # Pool Monitor
 
-> :warning: **VERY MUCH WORK IN PROGRESS**: ambitions: plenty, finished work: more
+> :warning: **VERY MUCH WORK IN PROGRESS**: ambitions: plenty
 
 ## prerequisites
 
@@ -42,6 +42,17 @@ This command: `cargo run --release` will:
 - use `espflash` to flash the software onto a device
 - boot the device and connect the logger to the console
 
+## known good environment
 
+```shell
+❯ cargo --version
+cargo 1.77.0-nightly (3fe68eabf 2024-02-29)
+
+❯ espup --version
+espup 0.12.0
+
+❯ espflash --version
+espflash 3.3.0
+```
 
 
