@@ -6,7 +6,7 @@ use embedded_hal::digital::{InputPin, OutputPin};
 use esp_backtrace as _;
 use esp_hal::{
     delay::Delay,
-    gpio::{GpioPin, OutputOpenDrain},
+    gpio::{GpioPin, OpenDrain, Output},
 };
 use heapless::Vec;
 use one_wire_bus::{OneWire, OneWireError, OneWireResult};
@@ -153,7 +153,7 @@ where
 }
 
 #[embassy_executor::task]
-pub async fn read_sensors(ood: OutputOpenDrain<'static, GpioPin<4>>, mut delay: Delay) {
+pub async fn read_sensors(ood: GpioPin<Output<OpenDrain>, 4>, mut delay: Delay) {
     let mut one_wire_bus = OneWire::new(ood).expect("creating a one-wire-bus");
 
     let publisher = TEMP_CHANNEL

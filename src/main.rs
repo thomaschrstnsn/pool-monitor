@@ -6,14 +6,8 @@ use embassy_net::{Config, Stack, StackResources};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::{
-    clock::ClockControl,
-    delay::Delay,
-    gpio::{Io, Level, OutputOpenDrain, Pull},
-    peripherals::Peripherals,
-    prelude::*,
-    rng::Rng,
-    system::SystemControl,
-    timer::timg::TimerGroup,
+    clock::ClockControl, delay::Delay, gpio::IO, peripherals::Peripherals, prelude::*, rng::Rng,
+    timer::TimerGroup,
 };
 
 mod channel;
@@ -46,7 +40,7 @@ async fn main(spawner: Spawner) {
     esp_println::logger::init_logger_from_env();
 
     let peripherals = Peripherals::take();
-    let system = SystemControl::new(peripherals.SYSTEM);
+    let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::max(system.clock_control).freeze();
 
     // wifi
@@ -55,7 +49,7 @@ async fn main(spawner: Spawner) {
         EspWifiInitFor::Wifi,
         timer,
         Rng::new(peripherals.RNG),
-        peripherals.RADIO_CLK,
+        system.radio_clock_control,
         &clocks,
     )
     .unwrap();
@@ -65,7 +59,7 @@ async fn main(spawner: Spawner) {
         esp_wifi::wifi::new_with_mode(&init, wifi, WifiStaDevice).unwrap();
 
     let timer_group0 = TimerGroup::new_async(peripherals.TIMG0, &clocks);
-    esp_hal_embassy::init(&clocks, timer_group0);
+    esp_hal::embassy::init(&clocks, timer_group0);
 
     let config = Config::dhcpv4(Default::default());
 
@@ -101,11 +95,11 @@ async fn main(spawner: Spawner) {
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
+    let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let delay = Delay::new(&clocks);
 
     let pin = io.pins.gpio4; // gpio4 is the default pin for the one wire bus
-    let ood = OutputOpenDrain::new(pin, Level::High, Pull::None);
+    let ood = pin.into_open_drain_output();
     spawner.spawn(sensors::read_sensors(ood, delay)).ok();
     spawner.spawn(http::post_updates(stack)).ok();
 }

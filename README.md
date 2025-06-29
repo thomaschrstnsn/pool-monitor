@@ -37,7 +37,7 @@ export POST_ENDPOINT_PORT=PORT_OF_HTTP_ENDPOINT # TCP port of the server
 ## running
 
 This command: `cargo run --release` will:
-- download and build dependencies 
+- download and build dependencies
 - build the code
 - use `espflash` to flash the software onto a device
 - boot the device and connect the logger to the console
@@ -55,4 +55,20 @@ espup 0.12.0
 espflash 3.3.0
 ```
 
+```
+espup install --toolchain-version 1.77.0.0
+```
+
+### nix tmpdir issue
+
+For this issue when using nixpkgs rustup:
+
+```
+   Compiling pool-monitor v0.1.0 (/Users/thomas/src/pool-monitor)
+error: couldn't create a temp dir: No such file or directory (os error 2) at path "/private/tmp/nix-shell-16093-0/rustcMZcKhH"
+```
+
+```shell
+TMPDIR=/tmp cargo build --release
+```
 
